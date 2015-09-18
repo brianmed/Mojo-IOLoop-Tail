@@ -68,7 +68,6 @@ sub run {
                 $line .= $buf;
 
                 if ("\n" eq $buf) {
-                    warn("here");
                     $self->emit(oneline => $line);
                     $line = undef;
                 }
