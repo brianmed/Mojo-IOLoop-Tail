@@ -43,7 +43,7 @@ This is an IOLoop interface to tail a file asynchronously
 
 has 'ioloop' => sub { Mojo::IOLoop->singleton };
 has 'file';
-has 'line';
+has 'leftovers';
 
 sub run {
     my ($self, @args) = @_;
@@ -62,15 +62,25 @@ sub run {
         sub {
             my $reactor = shift;
 
-            my $line = $self->line;
+            while (my $ret = sysread($fh, my $buf, 1024)) {
+                if ($self->leftovers) {
+                    $buf = $self->leftovers . $buf;
 
-            while (my $ret = sysread($fh, my $buf, 1)) {
-                $line .= $buf;
-
-                if ("\n" eq $buf) {
-                    $self->emit(oneline => $line);
-                    $line = undef;
+                    $self->{leftovers} = undef;
                 }
+
+                # eol patterns from IO::Async::Protocol::LineStream
+
+                if ($buf !~ m/\x0d?\x0a/) {
+                    $self->{leftovers} = $buf;
+                    next;
+                }
+
+                while ($buf =~ m/\G(.*?)\x0d?\x0a/g) {
+                    $self->emit(oneline => $1);
+                }
+
+                $self->{leftovers} = $1 if $buf =~ m/\G(.*)$/g
             }
         }
     )->watch($fh, 1, 0);
