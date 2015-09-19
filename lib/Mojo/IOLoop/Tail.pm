@@ -6,7 +6,7 @@ use Mojo::Base 'Mojo::EventEmitter';
 
 use Mojo::IOLoop;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 NAME
 
@@ -14,7 +14,7 @@ Mojo::IOLoop::Tail - IOLoop interface to tail a file asynchronously
 
 =head1 VERSION
 
-0.01
+0.02
 
 =head1 DESCRIPTION
 
@@ -45,6 +45,7 @@ has 'ioloop' => sub { Mojo::IOLoop->singleton };
 has 'file';
 has 'leftovers';
 has 'whence';
+has 'size';
 
 sub run {
     my ($self, @args) = @_;
@@ -58,6 +59,7 @@ sub run {
     $fh->autoflush(1);
     $fh->sysseek(0, 2);
     $self->{whence} = $fh->sysseek(0, SEEK_CUR);
+    $self->{size} = ($fh->stat)[7];
 
     my $reactor = $self->ioloop->reactor;
     $reactor->io($fh =>
@@ -67,8 +69,18 @@ sub run {
             my ($ret, $buf);
 
             my $size = ($fh->stat)[7];
-            my $unread = $size - $self->whence;
-            return unless $unread;
+
+            # Did we get truncated
+            if ($size < $self->size) {
+                $self->{size} = $size;
+                $fh->sysseek(0, 2);
+                $self->{whence} = $fh->sysseek(0, SEEK_CUR);
+            }
+            else {
+                $self->{size} = $size;
+                my $unread = $size - $self->whence;
+                return unless $unread;
+            }
 
             while ($ret = $fh->sysread($buf, 1024)) {
                 $self->{whence} = $fh->sysseek(0, SEEK_CUR); # == systell (IO::Async::FileStream)
@@ -91,7 +103,7 @@ sub run {
                 }
             }
 
-            $self->{leftovers} = $1 if $buf =~ m/\G(.*)$/g;
+            $self->{leftovers} = $1 if $buf =~ m/\G(.{1,-})$/g;
 
             if (!defined $ret) {
                 die("Error reading data\n");

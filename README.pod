@@ -2,7 +2,7 @@ NAME
     Mojo::IOLoop::Tail - IOLoop interface to tail a file asynchronously
 
 VERSION
-    0.01
+    0.02
 
 DESCRIPTION
     This is an IOLoop interface to tail a file asynchronously
