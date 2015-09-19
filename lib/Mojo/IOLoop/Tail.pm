@@ -44,6 +44,7 @@ This is an IOLoop interface to tail a file asynchronously
 has 'ioloop' => sub { Mojo::IOLoop->singleton };
 has 'file';
 has 'leftovers';
+has 'whence';
 
 sub run {
     my ($self, @args) = @_;
@@ -56,13 +57,22 @@ sub run {
 
     $fh->autoflush(1);
     $fh->sysseek(0, 2);
+    $self->{whence} = $fh->sysseek(0, SEEK_CUR);
 
     my $reactor = $self->ioloop->reactor;
     $reactor->io($fh =>
         sub {
             my $reactor = shift;
 
-            while (my $ret = sysread($fh, my $buf, 1024)) {
+            my ($ret, $buf);
+
+            my $size = ($fh->stat)[7];
+            my $unread = $size - $self->whence;
+            return unless $unread;
+
+            while ($ret = $fh->sysread($buf, 1024)) {
+                $self->{whence} = $fh->sysseek(0, SEEK_CUR); # == systell (IO::Async::FileStream)
+
                 if ($self->leftovers) {
                     $buf = $self->leftovers . $buf;
 
@@ -76,11 +86,15 @@ sub run {
                     next;
                 }
 
-                while ($buf =~ m/\G(.*?)\x0d?\x0a/g) {
-                    $self->emit(oneline => $1);
+                while ($buf =~ m/\G(.*?)(\x0d?\x0a)/g) {
+                    $self->emit(oneline => "$1$2");
                 }
+            }
 
-                $self->{leftovers} = $1 if $buf =~ m/\G(.*)$/g
+            $self->{leftovers} = $1 if $buf =~ m/\G(.*)$/g;
+
+            if (!defined $ret) {
+                die("Error reading data\n");
             }
         }
     )->watch($fh, 1, 0);
